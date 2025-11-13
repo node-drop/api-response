@@ -1,0 +1,11 @@
+{
+  "name": "@node-drop/api-response",
+  "version": "1.0.0",
+  "description": "Smart REST API response node with auto-detection (Laravel-style)",
+  "main": "nodes/ApiResponse.node.js",
+  "nodeDrop": {
+    "nodes": [
+      "nodes/ApiResponse.node.js"
+    ]
+  }
+}
