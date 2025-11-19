@@ -112,6 +112,18 @@ const ApiResponseNode = {
             { name: "Always Object", value: "object" },
           ],
         },
+        {
+          name: "paginationFormat",
+          displayName: "Pagination Format",
+          type: "options",
+          default: "simple",
+          description: "Format for pagination metadata",
+          options: [
+            { name: "Simple (count/total)", value: "simple" },
+            { name: "Laravel (meta/links)", value: "laravel" },
+            { name: "None", value: "none" },
+          ],
+        },
       ],
     },
   ],
@@ -142,6 +154,7 @@ const ApiResponseNode = {
     const errorMessageField = options.errorMessageField || "errors,error,_errorMessage,message";
     const includeDataInError = options.includeDataInError || false;
     const enableCors = options.enableCors !== undefined ? options.enableCors : true;
+    const paginationFormat = options.paginationFormat || "simple";
     
     // Parse error message fields
     const errorFields = errorMessageField 
@@ -205,7 +218,7 @@ const ApiResponseNode = {
     const generateSuccessMessage = (data, property) => {
       if (Array.isArray(data)) {
         const count = data.length;
-        if (count === 0) return "No records found";
+        if (count === 0) return "Query executed successfully";
         if (count === 1) return "1 record retrieved successfully";
         return `${count} records retrieved successfully`;
       }
@@ -243,8 +256,36 @@ const ApiResponseNode = {
     // Filter fields
     data = filterFields(data, fieldsToInclude, fieldsToExclude);
     
-    // Handle single object unwrapping
-    if (Array.isArray(data)) {
+    // Detect pagination metadata from input
+    const paginationMeta = {
+      page: item.page || item.current_page || null,
+      perPage: item.perPage || item.per_page || item.limit || null,
+      total: item.total || item.rowCount || null,
+      lastPage: item.lastPage || item.last_page || null,
+      from: item.from || null,
+      to: item.to || null,
+    };
+    
+    // Calculate pagination values if we have enough info
+    if (paginationMeta.total !== null && paginationMeta.perPage !== null && paginationMeta.page === null) {
+      paginationMeta.page = 1; // Default to page 1
+    }
+    if (paginationMeta.total !== null && paginationMeta.perPage !== null && paginationMeta.lastPage === null) {
+      paginationMeta.lastPage = Math.ceil(paginationMeta.total / paginationMeta.perPage);
+    }
+    if (Array.isArray(data) && paginationMeta.page !== null && paginationMeta.perPage !== null) {
+      if (paginationMeta.from === null) {
+        paginationMeta.from = data.length > 0 ? ((paginationMeta.page - 1) * paginationMeta.perPage) + 1 : null;
+      }
+      if (paginationMeta.to === null) {
+        paginationMeta.to = data.length > 0 ? paginationMeta.from + data.length - 1 : null;
+      }
+    }
+    
+    const hasPagination = paginationMeta.page !== null || paginationMeta.total !== null;
+    
+    // Handle single object unwrapping (skip if paginated)
+    if (Array.isArray(data) && !hasPagination) {
       if (returnSingleObject === "auto" && data.length === 1) {
         data = data[0]; // Unwrap single-item array
       } else if (returnSingleObject === "object" && data.length > 0) {
@@ -265,9 +306,9 @@ const ApiResponseNode = {
         } else {
           statusCode = item.statusCode || 500; // Server error
         }
-      } else if (Array.isArray(data) && data.length === 0) {
-        statusCode = 404; // Not found
       } else {
+        // Empty arrays are valid successful responses (e.g., database queries with no results)
+        // Only treat as 404 if explicitly marked or if it's a single object lookup that failed
         statusCode = 200; // Success
       }
     }
@@ -319,10 +360,55 @@ const ApiResponseNode = {
         // Success response
         responseBody.data = data;
         
-        // Add metadata for arrays
-        if (Array.isArray(data)) {
-          responseBody.count = data.length;
-          if (item.rowCount !== undefined) responseBody.total = item.rowCount;
+        // Add pagination metadata for arrays
+        if (Array.isArray(data) && paginationFormat !== "none") {
+          if (paginationFormat === "laravel" && hasPagination) {
+            // Laravel-style pagination
+            const currentPage = paginationMeta.page || 1;
+            const lastPage = paginationMeta.lastPage || 1;
+            
+            // Use the webhook URL from the webhook trigger
+            const webhookUrl = item.webhookUrl || item.path || "/";
+            
+            // Build query string helper
+            const buildUrl = (page) => {
+              if (!page) return webhookUrl;
+              return `${webhookUrl}?page=${page}`;
+            };
+            
+            responseBody.links = {
+              first: buildUrl(1),
+              last: buildUrl(lastPage),
+              prev: currentPage > 1 ? buildUrl(currentPage - 1) : null,
+              next: currentPage < lastPage ? buildUrl(currentPage + 1) : null,
+            };
+            
+            responseBody.meta = {
+              current_page: currentPage,
+              from: paginationMeta.from,
+              last_page: lastPage,
+              path: webhookUrl,
+              per_page: paginationMeta.perPage || data.length,
+              to: paginationMeta.to,
+              total: paginationMeta.total || data.length,
+            };
+            
+            // Remove simple count/total from root
+            delete responseBody.success;
+            delete responseBody.message;
+          } else {
+            // Simple pagination (default)
+            responseBody.count = data.length;
+            if (paginationMeta.total !== null) {
+              responseBody.total = paginationMeta.total;
+            }
+            if (paginationMeta.page !== null) {
+              responseBody.page = paginationMeta.page;
+            }
+            if (paginationMeta.perPage !== null) {
+              responseBody.perPage = paginationMeta.perPage;
+            }
+          }
         }
       }
     } else {
