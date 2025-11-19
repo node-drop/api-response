@@ -1,5 +1,5 @@
 const ApiResponseNode = {
-  type: "apiResponse",
+  identifier: "apiResponse",
   displayName: "API Response",
   name: "apiResponse",
   group: ["output"],
