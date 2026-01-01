@@ -5,6 +5,20 @@ const ApiResponseNode = {
   group: ["output"],
   version: 1,
   description: "Smart REST API response with auto-detection of data format (Laravel-style)",
+  ai: {
+    description: "Smart REST API response with auto-detection of data format (Laravel-style).",
+    useCases: [
+      "Return JSON data",
+      "Set status code",
+      "Handle options request"
+    ],
+    tags: ["api", "response", "http", "webhook", "laravel"],
+    rules: [
+      "Must be used with Webhook/API Trigger",
+      "One response per workflow"
+    ],
+    complexityScore: 2
+  },
   icon: "file:icon.svg",
   color: "#10B981",
   defaults: {
